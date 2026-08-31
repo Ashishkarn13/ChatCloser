@@ -1,0 +1,51 @@
+{
+  "name": "chatcloser",
+  "version": "1.0.0",
+  "description": "ChatCloser — an AI agent that answers WhatsApp, qualifies leads, and closes sales for any service business, with a bring-your-own-key admin panel, Stripe checkout, outbound webhooks, and role-based access.",
+  "main": "index.js",
+  "type": "module",
+  "license": "MIT",
+  "author": "YOUR NAME <your-email@example.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YOUR-USERNAME/chatcloser.git"
+  },
+  "bugs": {
+    "url": "https://github.com/YOUR-USERNAME/chatcloser/issues"
+  },
+  "homepage": "https://github.com/YOUR-USERNAME/chatcloser#readme",
+  "keywords": [
+    "whatsapp",
+    "whatsapp-bot",
+    "ai",
+    "chatbot",
+    "lead-generation",
+    "sales-automation",
+    "baileys",
+    "claude",
+    "openai",
+    "stripe"
+  ],
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "dashboard": "node dashboard/server.js",
+    "seed": "node seed.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9",
+    "@hapi/boom": "^10.0.1",
+    "@anthropic-ai/sdk": "^0.32.1",
+    "openai": "^4.68.4",
+    "@google/generative-ai": "^0.21.0",
+    "stripe": "^17.3.1",
+    "express": "^4.21.1",
+    "express-session": "^1.18.1",
+    "qrcode-terminal": "^0.12.0",
+    "qrcode": "^1.5.4",
+    "dotenv": "^16.4.5",
+    "pino": "^9.4.0"
+  }
+}

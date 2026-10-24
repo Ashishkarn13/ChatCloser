@@ -1,0 +1,100 @@
+{
+  "name": "chatcloser-desktop",
+  "productName": "ChatCloser",
+  "version": "2.0.0",
+  "description": "ChatCloser 2.0 — desktop AI business platform for Nepal.",
+  "type": "module",
+  "main": "src/electron/main.js",
+  "author": {
+    "name": "ChatCloser",
+    "email": "support@chatcloser.app"
+  },
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "prepare:backend": "node scripts/prepare-backend.mjs",
+    "desktop": "npm run prepare:backend && electron .",
+    "dist": "npm run prepare:backend && electron-builder",
+    "dist:win": "npm run prepare:backend && electron-builder --win",
+    "dist:mac": "npm run prepare:backend && electron-builder --mac",
+    "dist:linux": "npm run prepare:backend && electron-builder --linux"
+  },
+  "devDependencies": {
+    "electron": "^41.10.7",
+    "electron-builder": "^26.0.12"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "@google/generative-ai": "^0.21.0",
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^6.7.9",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "express-session": "^1.18.1",
+    "openai": "^4.68.4",
+    "pino": "^9.4.0",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "stripe": "^17.3.1"
+  },
+  "build": {
+    "appId": "com.chatcloser.desktop",
+    "productName": "ChatCloser",
+    "copyright": "ChatCloser — MIT licensed",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "backend/**/*",
+      "package.json",
+      "!**/*.map"
+    ],
+    "asar": true,
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "icon": "src/assets/icon.ico"
+    },
+    "nsis": {
+      "artifactName": "ChatCloser-Setup-${version}-${arch}.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ChatCloser",
+      "installerIcon": "src/assets/icon.ico",
+      "uninstallerIcon": "src/assets/icon.ico",
+      "deleteAppDataOnUninstall": false
+    },
+    "portable": {
+      "artifactName": "ChatCloser-Portable-${version}-${arch}.${ext}"
+    },
+    "mac": {
+      "target": ["dmg", "zip"],
+      "icon": "src/assets/icon.png",
+      "category": "public.app-category.business"
+    },
+    "dmg": {
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "icon": "src/assets/icon.png",
+      "category": "Office",
+      "desktop": {
+        "entry": {
+          "StartupWMClass": "ChatCloser"
+        }
+      }
+    }
+  }
+}

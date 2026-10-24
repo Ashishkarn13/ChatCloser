@@ -1,23 +1,37 @@
 // db.js
-// SQLite setup + query helpers. Every table is scoped by business_id
-// from day one, even though Stage 1 only ever runs one business — this
-// means later stages (multi-industry, multi-tenant SaaS) never require a
-// schema rewrite.
+// Legacy data-access facade. Every table is scoped by business_id from
+// day one — this means later stages (multi-industry, multi-tenant SaaS)
+// never require a schema rewrite.
+//
+// ChatCloser 2.0 keeps this file as the compatibility surface that
+// index.js, ai.js, seed.js and dashboard/server.js already import, but
+// the connection itself now lives in src/db/connection.js so the desktop
+// app, the dashboard and the bot share one connection (and therefore one
+// transaction boundary). The schema is created and upgraded by the
+// versioned migrations in src/db/migrations.
 //
 // Uses Node's BUILT-IN SQLite (node:sqlite, Node 22.5+) instead of the
 // native better-sqlite3 package. This avoids the native-compile step
 // entirely — no Visual Studio / build tools required on Windows, no
 // prebuilt-binary download to fail. Requires Node 22.5 or newer.
 
-import { DatabaseSync } from "node:sqlite";
+import { getDb } from "./src/db/connection.js";
 
-const db = new DatabaseSync("./data.sqlite");
-db.exec("PRAGMA journal_mode = WAL;");
+const db = getDb();
 
+// The 1.x schema bootstrap is now expressed as migration 001_core.sql.
+// The block below is kept only as a safety net for databases created
+// before the migration runner existed.
 db.exec(`
 CREATE TABLE IF NOT EXISTS businesses (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
+  locale TEXT DEFAULT 'en',               -- language/locale code, e.g. 'ne' for Nepali
+  country TEXT DEFAULT 'NP',              -- ISO 2-letter country code
+  timezone TEXT DEFAULT 'Asia/Kathmandu',
+  stripe_secret_key_encrypted TEXT DEFAULT '',
+  stripe_webhook_secret_encrypted TEXT DEFAULT '',
+  npr_payment_method TEXT DEFAULT '',     -- e.g. "esewa", "khalti", "ime_pay"
   system_prompt_extra TEXT DEFAULT '',
   knowledge_base TEXT DEFAULT '{}',          -- JSON blob
   escalation_keywords TEXT DEFAULT '[]',     -- JSON array
@@ -109,6 +123,16 @@ CREATE TABLE IF NOT EXISTS webhooks (
   FOREIGN KEY (business_id) REFERENCES businesses(id)
 );
 
+CREATE TABLE IF NOT EXISTS nepal_payment_methods (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  business_id INTEGER NOT NULL,
+  type TEXT NOT NULL,                     -- e.g. "esewa", "khalti", "ime_pay"
+  merchant_id TEXT,                       -- merchant/account ID with the provider
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (business_id) REFERENCES businesses(id)
+);
+
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   business_id INTEGER NOT NULL,
@@ -157,6 +181,18 @@ if (!existingColumns.includes("stripe_secret_key_encrypted")) {
 if (!existingColumns.includes("stripe_webhook_secret_encrypted")) {
   db.exec("ALTER TABLE businesses ADD COLUMN stripe_webhook_secret_encrypted TEXT DEFAULT ''");
 }
+if (!existingColumns.includes("locale")) {
+  db.exec("ALTER TABLE businesses ADD COLUMN locale TEXT DEFAULT 'en'");
+}
+if (!existingColumns.includes("country")) {
+  db.exec("ALTER TABLE businesses ADD COLUMN country TEXT DEFAULT 'NP'");
+}
+if (!existingColumns.includes("timezone")) {
+  db.exec("ALTER TABLE businesses ADD COLUMN timezone TEXT DEFAULT 'Asia/Kathmandu'");
+}
+if (!existingColumns.includes("npr_payment_method")) {
+  db.exec("ALTER TABLE businesses ADD COLUMN npr_payment_method TEXT DEFAULT ''");
+}
 
 const existingLeadColumns = db.prepare("PRAGMA table_info(leads)").all().map((c) => c.name);
 if (!existingLeadColumns.includes("nudged_at")) {
@@ -179,6 +215,9 @@ export function getBusiness(id) {
     ...row,
     knowledge_base: JSON.parse(row.knowledge_base || "{}"),
     escalation_keywords: JSON.parse(row.escalation_keywords || "[]"),
+    modules_enabled: JSON.parse(row.modules_enabled || "[]"),
+    settings: JSON.parse(row.settings || "{}"),
+    business_hours: JSON.parse(row.business_hours || "{}"),
   };
 }
 
@@ -187,25 +226,57 @@ export function upsertBusiness(id, fields) {
   const knowledge_base = JSON.stringify(fields.knowledge_base ?? {});
   const escalation_keywords = JSON.stringify(fields.escalation_keywords ?? []);
 
+  // Every field below is optional: the dashboard and the industry templates
+  // both call this function with partial data, and an omitted field must
+  // not wipe what is already stored. (ChatCloser 1.x silently dropped
+  // locale/country/timezone here — the locale could be edited in the UI
+  // but was never saved.)
+  const merge = (row) => ({
+    name: fields.name ?? row.name,
+    locale: fields.locale ?? row.locale,
+    country: fields.country ?? row.country,
+    timezone: fields.timezone ?? row.timezone,
+    currency: fields.currency ?? row.currency,
+    system_prompt_extra: fields.system_prompt_extra ?? row.system_prompt_extra,
+    knowledge_base: fields.knowledge_base ?? JSON.parse(row.knowledge_base || "{}"),
+    escalation_keywords:
+      fields.escalation_keywords ?? JSON.parse(row.escalation_keywords || "[]"),
+    escalation_message: fields.escalation_message ?? row.escalation_message,
+    away_message: fields.away_message ?? row.away_message,
+  });
+
   if (existing) {
+    const m = merge(existing);
     db.prepare(`
       UPDATE businesses SET
-        name = ?, system_prompt_extra = ?, knowledge_base = ?,
+        name = ?, locale = ?, country = ?, timezone = ?, currency = ?,
+        system_prompt_extra = ?, knowledge_base = ?,
         escalation_keywords = ?, escalation_message = ?, away_message = ?
       WHERE id = ?
     `).run(
-      fields.name, fields.system_prompt_extra ?? "", knowledge_base,
-      escalation_keywords, fields.escalation_message ?? "",
-      fields.away_message ?? "", id
+      m.name, m.locale, m.country, m.timezone, m.currency,
+      m.system_prompt_extra, JSON.stringify(m.knowledge_base),
+      JSON.stringify(m.escalation_keywords), m.escalation_message,
+      m.away_message, id
     );
   } else {
     db.prepare(`
       INSERT INTO businesses
-        (id, name, system_prompt_extra, knowledge_base, escalation_keywords, escalation_message, away_message)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+        (id, name, locale, country, timezone, currency, system_prompt_extra,
+         knowledge_base, escalation_keywords, escalation_message, away_message)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      id, fields.name, fields.system_prompt_extra ?? "", knowledge_base,
-      escalation_keywords, fields.escalation_message ?? "", fields.away_message ?? ""
+      id,
+      fields.name ?? "Your Company Name",
+      fields.locale ?? "en",
+      fields.country ?? "NP",
+      fields.timezone ?? "Asia/Kathmandu",
+      fields.currency ?? "NPR",
+      fields.system_prompt_extra ?? "",
+      knowledge_base,
+      escalation_keywords,
+      fields.escalation_message ?? "",
+      fields.away_message ?? ""
     );
   }
   return getBusiness(id);
@@ -315,6 +386,10 @@ export function ensureBusiness(id, defaultName = "Your Company Name") {
   if (existing) return existing;
   return upsertBusiness(id, {
     name: defaultName,
+    locale: "en",
+    country: "NP",
+    timezone: "Asia/Kathmandu",
+    currency: "NPR",
     system_prompt_extra: `You are a helpful assistant for "${defaultName}". Only answer using the knowledge base below — never guess or invent prices, availability, or policies. If you don't know something, say so honestly and offer to connect the customer with a human. Keep replies short and conversational — this is WhatsApp, not email. Once you have enough information (at minimum, what they're interested in, plus a name or contact number), call the capture_lead tool. Never confirm a final price or booking yourself — a human always confirms those.`,
     knowledge_base: {
       services: "Describe what you offer here — edit this from the Company Profile tab.",
@@ -420,6 +495,18 @@ export function attachStripeSession(orderId, { stripeSessionId, paymentUrl }) {
     UPDATE orders SET stripe_checkout_session_id = ?, payment_url = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).run(stripeSessionId, paymentUrl, orderId);
+  return db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId);
+}
+
+/**
+ * Attach Nepal payment method session to order.
+ * Stores the payment method (esewa, khalti, etc.) and the payment URL.
+ */
+export function attachNepalSession(orderId, { paymentMethod, paymentUrl, sessionId }) {
+  db.prepare(`
+    UPDATE orders SET payment_method = ?, payment_url = ?, stripe_checkout_session_id = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(paymentMethod, paymentUrl, sessionId, orderId);
   return db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId);
 }
 

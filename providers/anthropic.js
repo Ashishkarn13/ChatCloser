@@ -25,7 +25,14 @@ export async function generateReply({ apiKey, model, systemPrompt, history, tool
     }
   }
 
-  return { text: text.trim(), toolCalls };
+  return {
+    text: text.trim(),
+    toolCalls,
+    usage: {
+      promptTokens: response.usage?.input_tokens ?? 0,
+      completionTokens: response.usage?.output_tokens ?? 0,
+    },
+  };
 }
 
 export async function testConnection({ apiKey, model }) {

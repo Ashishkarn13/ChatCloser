@@ -42,7 +42,14 @@ export function createOpenAICompatibleProvider({ baseURL, defaultHeaders }) {
       input: JSON.parse(tc.function.arguments || "{}"),
     }));
 
-    return { text: text.trim(), toolCalls };
+    return {
+      text: text.trim(),
+      toolCalls,
+      usage: {
+        promptTokens: response.usage?.prompt_tokens ?? 0,
+        completionTokens: response.usage?.completion_tokens ?? 0,
+      },
+    };
   }
 
   async function testConnection({ apiKey, model }) {

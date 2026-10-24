@@ -1,51 +1,66 @@
 {
   "name": "chatcloser",
-  "version": "1.0.0",
-  "description": "ChatCloser — an AI agent that answers WhatsApp, qualifies leads, and closes sales for any service business, with a bring-your-own-key admin panel, Stripe checkout, outbound webhooks, and role-based access.",
-  "main": "index.js",
+  "version": "2.0.0",
+  "description": "ChatCloser 2.0 — a desktop-first, self-hostable AI business platform for Nepal. WhatsApp assistant, catalogue and inventory, customer-confirmed orders, verified eSewa/Khalti/Stripe payments, bookings, quotations, workflows, reporting and a multi-tenant admin console.",
+  "main": "scripts/server.js",
   "type": "module",
   "license": "MIT",
-  "author": "YOUR NAME <your-email@example.com>",
+  "author": "ChatCloser",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/YOUR-USERNAME/chatcloser.git"
+    "url": "git+https://github.com/Ashishkarn13/ChatCloser.git"
   },
   "bugs": {
-    "url": "https://github.com/YOUR-USERNAME/chatcloser/issues"
+    "url": "https://github.com/Ashishkarn13/ChatCloser/issues"
   },
-  "homepage": "https://github.com/YOUR-USERNAME/chatcloser#readme",
+  "homepage": "https://github.com/Ashishkarn13/ChatCloser#readme",
   "keywords": [
     "whatsapp",
     "whatsapp-bot",
     "ai",
     "chatbot",
-    "lead-generation",
-    "sales-automation",
+    "business-management",
+    "pos",
+    "orders",
+    "inventory",
+    "esewa",
+    "khalti",
+    "nepal",
+    "nepali",
     "baileys",
-    "claude",
-    "openai",
-    "stripe"
+    "electron",
+    "sqlite"
   ],
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=22.13.0"
   },
   "scripts": {
-    "start": "node index.js",
+    "start": "node scripts/server.js",
+    "server": "node scripts/server.js",
     "dashboard": "node dashboard/server.js",
-    "seed": "node seed.js"
+    "bot": "node index.js",
+    "test": "node --test",
+    "seed": "node seed.js",
+    "migrate": "node scripts/migrate.js",
+    "check": "node --check scripts/server.js && node --test",
+    "icon": "node scripts/generate-icon.mjs",
+    "desktop": "npm --prefix electron-app run desktop",
+    "desktop:prepare": "npm --prefix electron-app run prepare:backend",
+    "desktop:dist": "npm --prefix electron-app run dist",
+    "desktop:dist:win": "npm --prefix electron-app run dist:win"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.9",
-    "@hapi/boom": "^10.0.1",
     "@anthropic-ai/sdk": "^0.32.1",
-    "openai": "^4.68.4",
     "@google/generative-ai": "^0.21.0",
-    "stripe": "^17.3.1",
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^6.7.9",
+    "dotenv": "^16.4.5",
     "express": "^4.21.1",
     "express-session": "^1.18.1",
-    "qrcode-terminal": "^0.12.0",
+    "openai": "^4.68.4",
+    "pino": "^9.4.0",
     "qrcode": "^1.5.4",
-    "dotenv": "^16.4.5",
-    "pino": "^9.4.0"
+    "qrcode-terminal": "^0.12.0",
+    "stripe": "^17.3.1"
   }
 }

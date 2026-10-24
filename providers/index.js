@@ -17,8 +17,18 @@ import * as deepseek from "./deepseek.js";
 import * as openrouter from "./openrouter.js";
 import * as nvidia from "./nvidia.js";
 import * as groq from "./groq.js";
+import * as ollama from "./ollama.js";
 
-const registry = { anthropic, openai, google, deepseek, openrouter, nvidia, groq };
+const registry = {
+  anthropic,
+  openai,
+  google,
+  deepseek,
+  openrouter,
+  nvidia,
+  groq,
+  ollama,
+};
 
 export function getProvider(name) {
   const provider = registry[name];
@@ -86,5 +96,14 @@ export const SUPPORTED_PROVIDERS = [
     models: ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b"],
     freeTier: true,
     freeTierNote: "Groq's free tier requires no credit card and includes every model — it's rate-limited (not credit-limited), and only runs open-weight models (no GPT/Claude/Gemini).",
+  },
+  {
+    id: "ollama",
+    label: "Local model (Ollama) — data never leaves this computer",
+    defaultModel: "qwen2.5:7b",
+    models: ["qwen2.5:7b", "qwen2.5:3b", "llama3.2:3b", "mistral:7b", "gemma2:9b"],
+    freeTier: true,
+    local: true,
+    freeTierNote: "Runs open-weight models on your own machine. Nothing is sent to a cloud provider, which makes it the right choice when customer data must stay on the device. Start the runtime with `ollama serve` and pull a model with `ollama pull qwen2.5:7b`.",
   },
 ];

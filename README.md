@@ -1,370 +1,317 @@
-# ChatCloser
+# ChatCloser 2.0
 
-**An AI agent that answers your WhatsApp, qualifies leads, closes sales,
-and gets you paid — for any service business, running on the AI provider
-of your choice.**
+An AI-run business, in one application: a WhatsApp assistant that answers
+customers in Nepali or English, a real catalogue and stock ledger, orders that
+exist only after the customer confirms them, payments that are only marked paid
+when the provider says so, bookings, quotations, invoices, automation, and
+reporting — on your own computer, with your own AI key.
 
-You bring your own AI key (Anthropic, OpenAI, Google, DeepSeek,
-OpenRouter, NVIDIA NIM, or Grok) and your own Stripe account. ChatCloser
-handles the conversation, the lead capture, the payment link, and the
-paperwork — with hard safety boundaries so it never invents a price,
-never confirms a sale that hasn't actually been paid for, and always
-hands off anything sensitive to a human.
+ChatCloser runs as a **desktop application** (Windows, macOS, Linux) or as a
+**headless server**. Both run the same code and the same database.
 
 ---
 
-## Table of contents
-- [What this is](#what-this-is)
-- [Core safety design](#core-safety-design-read-this-first)
-- [Features](#features)
-- [Quick start](#quick-start)
-- [Admin panel tour](#admin-panel-tour)
-- [Team accounts](#team-accounts-owner-vs-staff)
-- [Supported AI providers](#supported-ai-providers)
-- [Webhooks](#webhooks)
-- [Before you run this on a real number](#before-you-run-this-on-a-real-business-number)
-- [Troubleshooting](#troubleshooting)
-- [Security notes](#security-notes)
-- [Project structure](#project-structure)
-- [Publishing / deploying](#publishing-this-to-your-own-github-account)
-- [Roadmap](#whats-next)
-- [Contributing](#contributing)
-- [License](#license)
+## Contents
+
+- [What it does](#what-it-does)
+- [The safety design](#the-safety-design-read-this-first)
+- [Install](#install)
+- [First run](#first-run)
+- [Connect WhatsApp](#connect-whatsapp)
+- [Choose an AI provider](#choose-an-ai-provider)
+- [Take payments](#take-payments)
+- [The console](#the-console)
+- [Configuration](#configuration)
+- [Data, backups and restore](#data-backups-and-restore)
+- [Development](#development)
+- [Security](#security)
+- [Known limitations](#known-limitations)
+- [Documentation](#documentation)
+- [Licence](#licence)
 
 ---
 
-## What this is
+## What it does
 
-Most WhatsApp business tools fall into two camps: rigid decision-tree
-chatbots that can't hold a real conversation, or generic AI wrappers that
-will confidently make up a price to close a sale. ChatCloser is built
-around a different idea — **the AI is genuinely autonomous in
-conversation, but never the source of truth for anything involving
-money.**
+**Conversation.** Incoming WhatsApp messages become a thread on a customer
+record. The assistant replies from your knowledge base and catalogue, detects
+whether the customer is writing in Nepali, romanised Nepali or English, and
+switches to a human on request, on a complaint, or on anything it is not allowed
+to decide.
 
-That distinction shapes the whole architecture:
-- The AI can chat naturally, answer questions from your own knowledge
-  base, and decide on its own when to capture a lead or offer to sell.
-- It can **only** quote prices from a list you control — never invents
-  one.
-- When a customer agrees to buy, it generates a real Stripe payment link.
-- The sale is only ever marked "paid" when **Stripe itself** confirms
-  payment via a verified webhook — never based on anything the AI said in
-  the chat.
+**Selling.** It can search the catalogue, check stock, add items to a draft
+order, compute tax and delivery, quote a total, and hand the customer a summary
+to confirm. The order is created only when the customer says yes. Prices always
+come from the catalogue, never from the model's own text.
 
-The result: a bot that can run sales conversations end-to-end without a
-human clicking anything for a normal transaction, without the liability
-of an AI that can hallucinate a confirmed sale.
+**Getting paid.** eSewa, Khalti, Stripe and manual bank transfer/QR. The order
+becomes `paid` only after a verified provider response — a webhook with a valid
+signature, or a server-side status call to the provider.
 
-## Core safety design (read this first)
+**Running the business.** Customers and addresses, catalogue with variants and
+price lists, stock movements with reservations, bookings and resources,
+quotations and invoices with printable documents, expenses, tasks, staff
+accounts with roles, audit log, automation workflows, scheduled jobs, knowledge
+base, notifications, and reports (sales trend, funnel, AI usage, accounting
+summary, forecast that refuses to guess when there is no history).
 
-These aren't optional features — they're structural guarantees this
-project is built around, and they don't get silently removed by future
-changes:
+**Staying in control.** Every AI action goes through a tool registry with
+permissions and an approval queue for anything sensitive. Every table is scoped
+by `business_id`. Every change is audited.
 
-1. **The AI never invents a price.** Every price it can quote comes from
-   your own Price List, looked up by exact match in code — not trusted
-   from the AI's own output.
-2. **The AI is never the proof of payment.** A "payment confirmed"
-   message is only ever sent by the code itself, triggered by a verified
-   Stripe webhook event — never generated by the AI.
-3. **Escalation always wins.** A message matching an escalation keyword
-   (complaints, safety issues, disputes) is handed to a human immediately
-   — no AI reply is attempted, regardless of what else is happening.
-4. **Every admin action is logged.** Who changed the AI provider, who
-   added a price, who logged WhatsApp out — visible in the Audit Log tab.
+---
 
-## Features
+## The safety design (read this first)
 
-**Conversational AI**
-- Works for any industry — set up entirely from the admin panel
-- 7 supported AI providers (bring your own key), several with genuinely
-  free tiers
-- Escalation-first handling for complaints, safety issues, disputes
+These are not features, they are invariants the code enforces:
 
-**Autonomous sales**
-- Fixed, business-controlled price list — the only source the AI can sell from
-- Real Stripe Checkout links generated automatically when a customer agrees to buy
-- Payment confirmed only by a verified Stripe webhook, never by AI text
-- Autonomous lead follow-up — one automatic check-in for leads gone quiet
+| Invariant | Where it is enforced |
+| --- | --- |
+| An order cannot exist without the customer confirming it | `src/services/orders.js` — `confirmDraft()` requires `customerApproved: true` |
+| Prices never come from the model | `src/services/catalog.js` — totals are recomputed server-side from catalogue rows |
+| A payment is never marked paid by the model, a link click, or a redirect | `src/services/payments/*` — only verified provider responses, deduplicated by event id |
+| The assistant acts with a fixed role, not one supplied by the request | `src/services/ai/tools/index.js` — the effective role is `businesses.ai_operator_role` |
+| Workflows cannot execute arbitrary code | `src/services/workflows.js` — actions are an allow-list |
+| Customer text is never rendered as HTML | `dashboard/server.js` — `escapeHtml` on every interpolation |
+| Every state-changing form is CSRF-protected | `src/server/app.js` — double-submit token, rotated on sign-in |
+| The control API that can log WhatsApp out is loopback-only | `index.js` — `BOT_CONTROL_HOST=127.0.0.1` |
+| A fresh install cannot start with placeholder secrets | `src/config.js` — `assertUsableConfig()` |
 
-**Admin panel**
-- Real username/password login, hashed, session-based
-- Ivory-and-black professional theme, sidebar navigation
-- Live stats: leads, conversion rate, average response time
-- Company Profile, Sales & Pricing, Orders, Leads, Conversations, AI
-  Settings, Payments, WhatsApp connection (in-browser QR + logout), Audit
-  Log, Team, Account
+If you change the code, keep these true. The test suite asserts most of them.
 
-**Team & access control**
-- Owner and Staff roles, enforced server-side (not just hidden UI)
-- Owner-only access to money, secrets, and other accounts
-- Staff can work leads and view conversations/orders
+---
 
-**Integrations & ops**
-- Outbound webhooks (lead captured, order paid, escalation triggered),
-  HMAC-signed, with a delivery log and automatic retry
-- CSV export for leads and orders
-- Send-rate limiting to reduce WhatsApp restriction risk
-- Health check endpoint for uptime monitoring
+## Install
 
-**Data**
-- SQLite via Node's built-in `node:sqlite` — no native compilation, no
-  external database to run
-- Tenant-scoped schema from day one, ready to grow into multi-business
+### Desktop application (recommended)
 
-## Quick start
+Download the installer for your platform from the releases page, run it, and
+open ChatCloser. The first launch creates its database, its encryption key and
+an owner account, and shows you the credentials once.
+
+To build the installer yourself:
 
 ```bash
-git clone https://github.com/Ashishkarn13/ChatCloser.git
-cd chatcloser
 npm install
-cp .env.example .env
+npm --prefix electron-app install
+npm run desktop:dist:win     # or :mac / :linux
 ```
 
-Generate two random values (run this twice — once for each):
+The build writes `electron-app/dist/ChatCloser-Setup-<version>-x64.exe` (NSIS
+installer) and `ChatCloser-Portable-<version>-x64.exe`. Both are smoke-tested:
+the packaged application starts, the panel answers, sign-in works, and Node is
+not reachable from the page. See [docs/DESKTOP.md](docs/DESKTOP.md) for build
+requirements and what the desktop shell does.
+
+### Server
+
+Requires Node.js 22.13 or newer (Node 24 is what this release is tested on).
+
 ```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+npm install
+copy .env.example .env      # Windows:  Copy-Item .env.example .env
+# edit .env: ENCRYPTION_KEY, SESSION_SECRET, ADMIN_PASSWORD
+npm start
 ```
-Put one in `ENCRYPTION_KEY` and the other in `SESSION_SECRET` in `.env`.
-Set `ADMIN_USERNAME`/`ADMIN_PASSWORD` to your own choice.
+
+`npm start` runs the admin panel and the WhatsApp assistant in one process.
+Open <http://127.0.0.1:3001> and sign in.
+
+Step-by-step instructions, including a reverse proxy and a service definition:
+[docs/INSTALL.md](docs/INSTALL.md) and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+---
+
+## First run
+
+1. The application creates business `#1`, an owner account, and applies an
+   industry template (default `retail`).
+2. The generated password is printed once and written to
+   `first-run-credentials.txt` in the data folder. **Sign in, change the
+   password in Account, and delete that file.**
+3. Set your business name, currency, tax rules and hours in **Settings**.
+4. Pick the industry template that matches your business. Applying a template
+   turns on the modules and custom fields that fit (order types, delivery,
+   bookings, site visits, and so on). It never deletes records.
+
+---
+
+## Connect WhatsApp
+
+In the console, open **Integrations → WhatsApp**, press *Connect*, and scan the
+QR code from the phone (WhatsApp → Linked devices → Link a device). The session
+is stored in the data folder, so it survives restarts.
+
+**Read this before using a real business number.** ChatCloser connects through
+Baileys, an unofficial library that automates a normal WhatsApp account rather
+than Meta's Cloud API. Meta's terms do not permit this, and accounts have been
+banned for it. Use a spare number until you have migrated to the Cloud API
+(`src/services/ai/*` is independent of the transport, so a Cloud API adapter is
+a drop-in replacement for `index.js`). See [docs/WHATSAPP.md](docs/WHATSAPP.md).
+
+---
+
+## Choose an AI provider
+
+Configured in **AI Configuration**: Anthropic, OpenAI, Google, DeepSeek,
+OpenRouter, NVIDIA NIM, Groq, or a **local model through Ollama** (nothing
+leaves the machine). Keys are encrypted with `ENCRYPTION_KEY` before they touch
+the database.
+
+Any model id the provider accepts can be typed into the *Model* field; the
+suggested list is only a starting point. There is a *Test* button that makes one
+real call and reports the latency, the reply and an estimated cost.
+
+If no key is configured the assistant does not invent replies — the panel says
+so, and messages are queued for a human. Details:
+[docs/AI.md](docs/AI.md).
+
+---
+
+## Take payments
+
+| Provider | What you need | Verification |
+| --- | --- | --- |
+| **eSewa** | Merchant code, secret key (sandbox or production) | HMAC-signed request, then a server-side status lookup |
+| **Khalti** | Public key, secret key (sandbox or production) | Server-side payment lookup by `pidx` |
+| **Stripe** | Secret key, webhook signing secret | Signature-verified webhook event, then a server-side session check |
+| **Manual** | Nothing | A staff member with the `payments.approve` permission confirms receipt; the approval is audited |
+
+Provider setup, sandbox testing and the exact callback URLs:
+[docs/PAYMENTS.md](docs/PAYMENTS.md).
+
+---
+
+## The console
+
+| Module | What it is for |
+| --- | --- |
+| Overview | Today's numbers: revenue, orders, leads, escalations, stock alerts, AI runs |
+| AI Command Center | What the assistant is doing, recent runs, approvals, escalations |
+| Customer Inbox | WhatsApp threads, takeover and resume, notes |
+| Leads & CRM | Pipeline, stages, follow-ups |
+| Orders & Bookings | Draft → confirmed → paid → fulfilled, plus appointments and resources |
+| Products & Services | Catalogue, variants, price lists, service duration |
+| Inventory | Stock levels, movements, reservations, low-stock alerts |
+| Quotations & Invoices | Printable documents, numbering, expenses |
+| Payments | Every attempt, verification state, reconciliation |
+| Customers | Records, addresses, order history, custom fields |
+| Automation Studio | Triggers, conditions, actions, retries, dead-letter queue |
+| Business Intelligence | Trends, funnel, AI usage and cost, accounting summary, forecast |
+| AI Configuration | Provider, model, prompt, knowledge, tool permissions |
+| Knowledge Base | Documents, chunking, search |
+| Integrations | WhatsApp, payments, webhooks |
+| Team & Permissions | Users, roles, per-permission overrides |
+| Security & Audit Logs | Every privileged action, with actor and IP |
+| Settings & Backups | Business profile, tax, modules, backup and restore |
+
+---
+
+## Configuration
+
+Everything is environment variables; `.env.example` documents each one. The
+important ones:
+
+| Variable | Meaning |
+| --- | --- |
+| `ENCRYPTION_KEY` | 32 bytes, hex. Encrypts stored provider secrets. **Losing it means stored keys must be re-entered.** |
+| `SESSION_SECRET` | Signs the admin session cookie. |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | The owner account created on first run. |
+| `BUSINESS_NAME`, `INDUSTRY_TEMPLATE` | Workspace name and starting template. |
+| `DASHBOARD_HOST` / `DASHBOARD_PORT` | Where the panel listens. `127.0.0.1` by default. |
+| `COOKIE_SECURE` | Set to `1` only when the panel is served over HTTPS. |
+| `WHATSAPP_ENABLED` | `false` runs the console and payments without WhatsApp. |
+| `CHATCLOSER_DATA_DIR` | Where the database, session, backups and logs live (default `./data`). |
+
+The desktop application needs none of these: it generates and stores them in its
+user-data folder on first launch.
+
+---
+
+## Data, backups and restore
+
+Everything is in one SQLite database plus the WhatsApp session directory.
+**Settings → Backups** creates a consistent snapshot (`VACUUM INTO`) and can
+encrypt it with a passphrase (AES-256-GCM). Restore is a documented offline
+procedure, not a button that swaps a live database.
+
+Full procedure, including moving to a new computer:
+[docs/DATA.md](docs/DATA.md).
+
+---
+
+## Development
 
 ```bash
-npm run dashboard   # terminal 1 — http://localhost:3001
-npm start            # terminal 2 — scan the QR code shown in the WhatsApp tab
+npm test                 # 129 tests, node:test, no services required
+npm run check            # syntax check + tests
+npm run migrate          # apply migrations, list them
+npm run seed             # load the example workspace (destructive on business 1)
+npm run desktop          # run the desktop shell against the repo
 ```
 
-Then, inside the admin panel:
-1. **Company Profile** — your business name, hours, services, policies
-2. **AI Settings** — pick a provider, paste your key, test it, save
-3. *(Optional, for autonomous sales)* **Sales & Pricing** — add items with
-   exact prices, then **Payments** — connect your Stripe account
-
-Full step-by-step detail, including Windows-specific notes, is further
-down this README.
-
-## Admin panel tour
-
-| Tab | What it does | Access |
-|---|---|---|
-| **Overview** | Live stats (leads, conversion rate, avg. response time) + setup checklist | Owner + Staff |
-| **Leads** | Every captured lead, status tracking, link to full chat, CSV export | Owner + Staff |
-| **Conversations** | Full message history per customer | Owner + Staff |
-| **Company Profile** | Business identity + flexible knowledge base | Owner only |
-| **Sales & Pricing** | The fixed price list the AI is allowed to sell from | Owner only |
-| **Orders** | Every payment link generated and its real (Stripe-verified) status, CSV export | Owner + Staff |
-| **Webhooks** | Outbound notifications to your own systems + a live delivery log | Owner only |
-| **AI Settings** | Choose your AI provider, add/replace your key, test it | Owner only |
-| **Payments** | Stripe secret key + webhook signing secret, setup instructions | Owner only |
-| **WhatsApp** | Live connection status; scan the QR code directly in-browser; log out | Owner only |
-| **Audit Log** | Every admin action, who did it, and when | Owner only |
-| **Team** | Add/remove staff and owner accounts | Owner only |
-| **Account** | Change your own password | Owner + Staff |
-
-Staff accounts see a smaller sidebar automatically — owner-only tabs are
-hidden, and blocked server-side too, so a staff account can't reach a
-restricted page by guessing a URL.
-
-## Team accounts (owner vs. staff)
-
-The bootstrap account from `.env` becomes the first **owner**. From the
-**Team** tab, an owner can add more accounts as either:
-- **Owner** — full access, including AI/payment keys, webhooks, and
-  managing other accounts
-- **Staff** — can view Overview, work Leads, read Conversations and
-  Orders, and change their own password — nothing touching money,
-  secrets, or other accounts
-
-You can't remove your own account or the last remaining owner.
-
-## Supported AI providers
-
-| Provider | Free tier? | Notes |
-|---|---|---|
-| Anthropic (Claude) | No | |
-| OpenAI (GPT) | No | |
-| Google (Gemini) | **Yes** | Free API key from Google AI Studio, no card required |
-| DeepSeek | No | OpenAI-compatible API |
-| OpenRouter | **Some models** | One key routes to many models; `:free` variants rotate — check openrouter.ai/models?max_price=0 |
-| NVIDIA NIM | **Yes** | Free API key from build.nvidia.com with starter credits |
-| Grok | **Yes** | No card required — open-weight models only, extremely fast inference |
-
-The AI Settings page auto-fills a known-good model the moment you pick a
-provider, and shows each free-tier provider's note directly.
-
-**Model names drift over time** — providers retire and rename models
-regularly. If Test Connection fails with a "model not found" error after
-previously working, check the provider's own docs before assuming it's a
-bug here.
-
-## Webhooks
-
-Subscribe your own systems to three events from the **Webhooks** tab:
-
-| Event | Fires when |
-|---|---|
-| `lead.captured` | The AI captures a new lead |
-| `order.paid` | Stripe confirms a real payment |
-| `escalation.triggered` | A conversation is handed off to a human |
-
-Every delivery is a `POST` with a JSON body and an `X-Webhook-Signature`
-header — HMAC-SHA256 of the raw body, signed with your webhook's own
-secret:
-
-```js
-const crypto = require("crypto");
-const expected = crypto.createHmac("sha256", YOUR_WEBHOOK_SECRET)
-  .update(rawRequestBody)
-  .digest("hex");
-if (expected !== req.headers["x-webhook-signature"]) {
-  return res.status(401).send("Invalid signature");
-}
-```
-
-A failed delivery is retried once, 30 seconds later — both attempts are
-logged in the delivery table on the Webhooks tab.
-
-## Before you run this on a real business number
-
-This uses **Baileys**, an unofficial library that automates a real
-WhatsApp account via the multi-device Web protocol — not Meta's official
-Cloud API. This carries real, unavoidable risk:
-
-- **Numbers can be flagged or restricted, with no warning.**
-- **Use a dedicated/spare number to test, never a business's primary
-  line.** If you're running this for a client, make sure they understand
-  and accept this risk explicitly.
-
-**Practical steps that meaningfully reduce (not eliminate) the risk:**
-1. **Warm up a fresh number before automating it** — link it, exchange a
-   few messages with contacts you control, set a profile photo, let it
-   look like a normal account for a few days first.
-2. **Never let it cold-message people who haven't messaged first.** This
-   bot is architecturally reply-only plus opt-in follow-up nudges, by
-   design — not a broadcast tool.
-3. **Use the built-in rate limits** (`RATE_LIMIT_PER_CHAT_PER_MIN`,
-   `RATE_LIMIT_GLOBAL_PER_MIN` in `.env`) rather than disabling them.
-4. **Keep a fallback channel** for anything genuinely critical.
-
-**Platform quirk worth knowing:** WhatsApp's own anti-spam system can
-silently drop the *very first* message ever sent to a brand-new contact,
-even though the bot reports it as sent. That's WhatsApp server-side
-behavior, not a bug here.
-
-## Full setup (detailed)
-
-1. **Node.js v22.5+** — this project uses Node's built-in SQLite, so
-   there's no native module to compile, no Visual Studio/build tools
-   needed on Windows.
-2. `npm install`
-3. `cp .env.example .env`, fill in `ENCRYPTION_KEY` and `SESSION_SECRET`
-   (generate each with the command above — they must be different
-   values), and `ADMIN_USERNAME`/`ADMIN_PASSWORD`. No AI or Stripe key
-   goes in `.env` — those are added from the admin panel.
-4. `npm run dashboard`, visit `http://localhost:3001`, sign in. A blank
-   business profile is created automatically — no seed step required.
-5. Fill in **Company Profile**, then **AI Settings**.
-6. *(Optional)* **Sales & Pricing** and **Payments** for autonomous sales
-   — see the Payments tab for Stripe webhook setup instructions,
-   including using the Stripe CLI for local testing.
-7. `npm start` in a second terminal, then scan the QR code shown on the
-   **WhatsApp** tab.
-
-If you'd rather start from a filled-in example instead of blank, run
-`npm run seed` before step 4 — it loads a sample construction-company
-profile you can edit afterward.
-
-## Troubleshooting
-
-**`npm install` fails compiling `better-sqlite3` / Visual Studio errors:**
-this project doesn't use `better-sqlite3`. Delete `node_modules` and
-`package-lock.json`, then reinstall.
-
-**`node:sqlite` import errors:** your Node.js is older than 22.5 — update it.
-
-**You'll see `ExperimentalWarning: SQLite is an experimental feature` on
-startup** — expected, not an error.
-
-**Stripe webhook signature verification fails:** the webhook secret in
-**Payments** must match the one Stripe (or the Stripe CLI) gives you for
-that specific endpoint.
-
-**AI Test Connection fails:** confirm the account actually has usable
-credit/quota, the provider dropdown matches where the key came from, and
-read the exact error text shown — it's the provider's real error, not a
-generic one.
-
-## Security notes
-
-- AI keys and Stripe keys are encrypted at rest (AES-256-GCM) using
-  `ENCRYPTION_KEY`. Losing that key means saved keys can't be decrypted.
-- Admin passwords are hashed (scrypt + salt), never stored in plaintext.
-- No key is ever displayed in full after saving — only a masked preview.
-- Role-based access is enforced server-side, not just hidden in the UI.
-- The AI never handles raw card numbers — Stripe Checkout does, on
-  Stripe's own hosted page, keeping this out of PCI-DSS scope for you.
-
-## Project structure
+Layout:
 
 ```
-chatcloser/
-├── index.js                 # WhatsApp connection, message routing, sale
-│                             # handling, Stripe webhook, rate limiting,
-│                             # autonomous nudge job, health check
-├── ai.js                    # Prompt building, provider calls, tool
-│                             # handling (capture_lead / close_sale), escalation
-├── db.js                    # SQLite schema + all query helpers
-├── crypto-utils.js          # AES-256-GCM encryption, password hashing
-├── webhooks.js               # Outbound webhook delivery, HMAC signing, retry
-├── seed.js                   # Optional starter example business
-├── providers/
-│   ├── index.js              # Provider registry
-│   ├── openai-compatible.js  # Shared adapter factory
-│   ├── anthropic.js
-│   ├── openai.js
-│   ├── google.js
-│   ├── deepseek.js
-│   ├── openrouter.js
-│   ├── nvidia.js
-│   └── groq.js
-└── dashboard/
-    └── server.js              # The full admin panel
+src/config.js            validated configuration
+src/db/                  connection, migration runner, SQL migrations
+src/core/                errors, validation, money, audit, RBAC
+src/services/            business logic, one module per domain
+src/services/ai/         prompt, reply validation, tool registry, model adapter
+src/services/payments/   provider adapters
+src/server/              HTTP app (sessions, CSRF, CSP) and the JSON API
+dashboard/server.js      the server-rendered admin console
+index.js                 WhatsApp channel + control API
+scripts/server.js        `npm start` entry point
+electron-app/            desktop shell (Electron)
+test/                    the test suite
 ```
 
-## Publishing this to your own GitHub account
+Tests run hermetically: each file gets its own temporary database.
 
-1. Replace the placeholders first — `LICENSE` (your name), and
-   `package.json`'s `author`/`repository`/`bugs`/`homepage` fields.
-2. Never commit `.env`, `data.sqlite`, or `auth_info/` —
-   `.gitignore` already excludes all three.
-3. ```bash
-   git init
-   git add .
-   git commit -m "Initial commit"
-   git branch -M main
-   git remote add origin https://github.com/Ashishkarn13/ChatCloser.git
-   git push -u origin main
-   ```
-4. CI runs automatically on every push via `.github/workflows/ci.yml` —
-   it syntax-checks every file and confirms `node:sqlite` is available.
-5. Before making the repo public, run `git log -p -- .env` and confirm it
-   returns nothing.
+---
 
-## What's next
+## Security
 
-Multi-industry templates, self-serve signup/billing for many businesses
-at once, and a full "Business OS" layer (unified inbox, jobs/calendar,
-team management) are scoped in `FULL_LAUNCH_PROMPT.md`. Also on the
-roadmap: human takeover of a live chat, Stripe refunds, photo-based lead
-triage, and voice-note transcription.
+- Passwords: scrypt with per-user salt.
+- Provider secrets: AES-256-GCM with `ENCRYPTION_KEY`; never sent to the browser.
+- Sessions: stored server-side, id regenerated on sign-in, CSRF token rotated.
+- Headers: strict CSP with per-response nonces, `frame-ancestors 'none'`,
+  `nosniff`, `no-referrer`, permissions policy.
+- Login throttling with per-username/per-IP lockout.
+- Audit log of every privileged action.
+- Desktop shell: `contextIsolation`, `sandbox`, no Node in the renderer, a
+  five-channel IPC allow-list, navigation locked to the local panel.
 
-## Contributing
+Threat model and what is deliberately *not* protected: [docs/SECURITY.md](docs/SECURITY.md).
 
-See `CONTRIBUTING.md` — in short: this project stays a focused single-
-business tool, not a general-purpose messaging gateway. Open an issue
-before proposing large architectural changes.
+---
 
-## License
+## Known limitations
 
-MIT — see `LICENSE`.
-# ChatCloser
+Honest list — read it before deploying to real customers:
+[docs/LIMITATIONS.md](docs/LIMITATIONS.md). The short version:
+
+- Baileys is unofficial and can get a number banned.
+- Single-workspace per database in the packaged desktop app; the schema and the
+  API are multi-tenant, but the desktop shell is not a multi-workspace client.
+- No email/SMS channel yet; no Meta Cloud API adapter.
+- Forecasting is a simple trend model and says so.
+- eSewa/Khalti flows are implemented against their documented APIs and covered
+  by unit tests with recorded payloads, but they must be rehearsed against your
+  own sandbox merchant account before going live.
+
+---
+
+## Documentation
+
+- [Install](docs/INSTALL.md) · [Deployment](docs/DEPLOYMENT.md) · [Desktop](docs/DESKTOP.md)
+- [AI setup](docs/AI.md) · [WhatsApp](docs/WHATSAPP.md) · [Payments](docs/PAYMENTS.md)
+- [Data and backups](docs/DATA.md) · [Security](docs/SECURITY.md) · [Limitations](docs/LIMITATIONS.md)
+- [Upgrading from 1.x](docs/UPGRADING.md) · [Audit of 1.x](AUDIT.md)
+
+---
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).

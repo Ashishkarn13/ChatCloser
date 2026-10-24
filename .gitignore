@@ -1,0 +1,46 @@
+# Secrets and configuration
+.env
+.env.*
+!.env.example
+secrets.json
+first-run-credentials.txt
+
+# Runtime data
+data/
+auth_info/
+backups/
+logs/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+
+# Desktop application
+electron-app/node_modules/
+electron-app/backend/
+electron-app/dist/
+electron-app/build/*.ico
+electron-app/build/*.png
+
+# Dependencies
+node_modules/
+
+# Test and tooling output
+coverage/
+.nyc_output/
+*.log
+*.log.err
+smoke-result.json
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+
+# Temporary files
+tmp/
+temp/
+*.tmp

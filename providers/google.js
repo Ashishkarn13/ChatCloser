@@ -40,7 +40,14 @@ export async function generateReply({ apiKey, model, systemPrompt, history, tool
   const functionCalls = response.functionCalls() || [];
   const toolCalls = functionCalls.map((fc) => ({ name: fc.name, input: fc.args }));
 
-  return { text: text.trim(), toolCalls };
+  return {
+    text: text.trim(),
+    toolCalls,
+    usage: {
+      promptTokens: result.response.usageMetadata?.promptTokenCount ?? 0,
+      completionTokens: result.response.usageMetadata?.candidatesTokenCount ?? 0,
+    },
+  };
 }
 
 export async function testConnection({ apiKey, model }) {

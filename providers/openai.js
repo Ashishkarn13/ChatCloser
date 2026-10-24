@@ -35,7 +35,14 @@ export async function generateReply({ apiKey, model, systemPrompt, history, tool
     input: JSON.parse(tc.function.arguments || "{}"),
   }));
 
-  return { text: text.trim(), toolCalls };
+  return {
+    text: text.trim(),
+    toolCalls,
+    usage: {
+      promptTokens: response.usage?.prompt_tokens ?? 0,
+      completionTokens: response.usage?.completion_tokens ?? 0,
+    },
+  };
 }
 
 export async function testConnection({ apiKey, model }) {

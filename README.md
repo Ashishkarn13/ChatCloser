@@ -1,5 +1,9 @@
 # ChatCloser 2.0
 
+<p align="center">
+  <img src="website/assets/logo.png" alt="ChatCloser 2.0 — conversations to customers — Thirteen" width="520" />
+</p>
+
 An AI-run business, in one application: a WhatsApp assistant that answers
 customers in Nepali or English, a real catalogue and stock ledger, orders that
 exist only after the customer confirms them, payments that are only marked paid
